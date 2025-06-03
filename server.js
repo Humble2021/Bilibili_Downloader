@@ -1,79 +1,69 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const youtubedl = require('youtube-dl-exec');
 const { URL } = require('url');
+const PORT = process.env.PORT || 10000;
 
-const PORT = process.env.PORT || 8080;
-
-const server = http.createServer((req, res) => {
-  //console.log(`Incoming request: ${req.method} ${req.url}`);
+const server = http.createServer(async (req, res) => {
+  console.log(`Incoming request: ${req.method} ${req.url}`);
 
   if (req.method === 'GET') {
-    const urlObj = new URL(req.url, `http://${req.headers.host}`);
-    const pathname = urlObj.pathname;
-
-    if (pathname === '/download') {
-      const videoUrl = urlObj.searchParams.get('url');
+    if (req.url.startsWith('/download?')) {
+      const urlParams = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      const videoUrl = urlParams.get('url');
 
       if (!videoUrl || !videoUrl.includes('bilibili')) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ error: 'Invalid Bilibili URL' }));
       }
 
-      const titleProc = spawn('yt-dlp', ['--get-title', videoUrl]);
-      let title = '';
+      try {
+        // Get video info
+        const info = await youtubedl(videoUrl, {
+          dumpSingleJson: true,
+          noWarnings: true,
+          noCallHome: true,
+          noCheckCertificate: true,
+        });
 
-      titleProc.stdout.on('data', data => (title += data.toString()));
+        const safeTitle = (info.title || 'bilibili_video').replace(/[^a-zA-Z0-9- ]/g, '').replace(/ /g, '');
+        const filename = `${safeTitle}.mp4`;
 
-      titleProc.on('close', () => {
-        const safeTitle = title.trim().replace(/[^a-zA-Z0-9- ]/g, '').replace(/ /g, '');
-        const filename = `${safeTitle || 'bilibili_video'}.mp4`;
-
+        // Set headers for file download
         res.writeHead(200, {
           'Content-Type': 'application/octet-stream',
           'Content-Disposition': `attachment; filename="${filename}"`,
         });
 
-        const ytdlp = spawn('yt-dlp', ['-o', '-', videoUrl]);
-        ytdlp.stdout.pipe(res);
-        ytdlp.stderr.on('data', d => console.error('yt-dlp error:', d.toString()));
-        ytdlp.on('close', () => res.end());
-      });
+        // Stream the video content to response
+        const videoStream = youtubedl(videoUrl, {
+          format: 'best',
+          output: '-', // stdout
+        });
 
-    } else if (pathname === '/info') {
-      const videoUrl = urlObj.searchParams.get('url');
+        videoStream.stdout.pipe(res);
 
-      if (!videoUrl || !videoUrl.includes('bilibili')) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ error: 'Invalid Bilibili URL' }));
+        videoStream.stderr.on('data', data => {
+          console.error('yt-dlp error:', data.toString());
+        });
+
+        videoStream.on('close', () => {
+          res.end();
+        });
+      } catch (err) {
+        console.error('Error:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to download video' }));
       }
 
-      const infoCmd = spawn('yt-dlp', [
-        '--print', '%(title)s||%(ext)s||%(filesize_approx)s||%(duration)s',
-        videoUrl
-      ]);
-
-      let output = '';
-      infoCmd.stdout.on('data', data => output += data.toString());
-      infoCmd.stderr.on('data', err => console.error('yt-dlp info error:', err.toString()));
-
-      infoCmd.on('close', () => {
-        const [title, ext, size, duration] = output.trim().split('||');
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          title: title || 'Unknown',
-          format: ext || 'unknown',
-          size: size ? `${(Number(size) / 1024 / 1024).toFixed(2)} MB` : 'Unknown',
-          duration: duration ? `${(Number(duration) / 60).toFixed(1)} min` : 'Unknown',
-        }));
-      });
-
     } else {
-      const filePath = pathname === '/' ? '/public/index.html' : '/public' + pathname;
+      // Serve static files
+      const filePath = req.url === '/' ? '/public/index.html' : '/public' + req.url;
       const fullPath = path.join(__dirname, filePath);
-      const ext = path.extname(filePath).slice(1);
+      console.log(`Serving file: ${fullPath}`);
 
+      const ext = path.extname(filePath).slice(1);
       const contentType = {
         html: 'text/html',
         css: 'text/css',
@@ -86,18 +76,14 @@ const server = http.createServer((req, res) => {
           res.writeHead(404);
           return res.end('Not Found');
         }
-
         res.writeHead(200, { 'Content-Type': contentType });
         res.end(content);
       });
     }
-
   } else {
-    res.writeHead(405, { 'Content-Type': 'text/plain' });
+    res.writeHead(405);
     res.end('Method Not Allowed');
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
