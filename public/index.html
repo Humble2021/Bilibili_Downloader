@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bilibili Downloader</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Bilibili Video Downloader</h1>
+    <form id="downloadForm">
+      <input type="url" placeholder="Paste Bilibili URL..." id="videoUrl" required />
+      <button type="submit">Download</button>
+    </form>
+    <div id="status"></div>
+
+    <div id="videoInfo" style="display:none; margin-top:1rem; text-align:left; font-size: 0.9rem; color:#ddd;">
+      <p><strong>Title:</strong> <span id="infoTitle">-</span></p>
+      <p><strong>Format:</strong> <span id="infoFormat">-</span></p>
+      <p><strong>Size:</strong> <span id="infoSize">-</span></p>
+      <p><strong>Duration:</strong> <span id="infoTime">-</span></p>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
